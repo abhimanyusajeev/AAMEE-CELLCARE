@@ -24,7 +24,10 @@ export function RepairDetail({ repair, technicians, products }: { repair: any; t
     const r = await fetch(`/api/repairs/${row.id}`, { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify(payload) });
     const data = await r.json().catch(() => ({}));
     setSaving(false);
-    if (!r.ok) { setMessage(data.message || "Unable to save"); return; }
+    if (!r.ok) {
+  setToast(data.message || "Unable to save");
+  return;
+}
     setRow(data.repair); setSelectedStatus(data.repair.status); setToast(data.whatsapp?.sent ? "Saved and WhatsApp update sent." : "Saved successfully.");
   }
 
