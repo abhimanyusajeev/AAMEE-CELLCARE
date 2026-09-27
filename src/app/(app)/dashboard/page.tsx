@@ -45,7 +45,7 @@ export default async function Dashboard() {
   const from = startOfDay(today);
   const to = endOfDay(today);
 
-  const [sales, visits, repairs, lowStock] = await Promise.all([
+  const [sales, visits, repairs, repairStatus, lowStock] = await Promise.all([
     prisma.sale.aggregate({
       where: {
         branchId: { in: branchIds },
@@ -67,6 +67,7 @@ export default async function Dashboard() {
         createdAt: { gte: from, lte: to },
       },
     }),
+    prisma.repairJob.groupBy({ where: { branchId: { in: branchIds } }, by: ["status"], _count: { _all: true } }),
     prisma.inventoryItem.count({
       where: {
         branchId: { in: branchIds },
@@ -108,6 +109,8 @@ export default async function Dashboard() {
           </div>
         ))}
       </div>
+
+      <div className="mt-6 grid grid-cols-2 gap-3 sm:grid-cols-4 xl:grid-cols-6">{["RECEIVED","DIAGNOSIS","WAITING_FOR_PARTS","REPAIRING","READY_FOR_PICKUP","DELIVERED"].map((status) => <div key={status} className="rounded-2xl bg-white p-4 ring-1 ring-slate-200"><div className="text-[11px] font-bold uppercase tracking-wide text-slate-500">{status.replaceAll("_", " ")}</div><div className="mt-1 text-2xl font-black">{repairStatus.find((x) => x.status === status)?._count._all ?? 0}</div></div>)}</div>
 
       <div className="mt-6 grid gap-6 lg:grid-cols-2">
         <div className="rounded-2xl bg-white p-5 ring-1 ring-slate-200">
