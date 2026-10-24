@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db/prisma";
 import { requireAuth, requireBranchAccess } from "@/lib/auth/session";
 import { z } from "zod";
@@ -50,7 +51,15 @@ export async function POST(req: NextRequest) {
 
     await requireBranchAccess(user.id, user.role, parsed.data.branchId);
 
+    const uniqueSaleItemIds = new Set(parsed.data.items.map((item) => item.saleItemId));
+    if (uniqueSaleItemIds.size !== parsed.data.items.length) {
+      return NextResponse.json({ message: "Each product line can only be selected once per return." }, { status: 400 });
+    }
+
     const result = await prisma.$transaction(async (tx) => {
+      // Lock the sale row so two rapid clicks/parallel requests cannot both
+      // validate against the same old returned quantities.
+      await tx.$queryRaw`SELECT id FROM "Sale" WHERE id = ${parsed.data.saleId} FOR UPDATE`;
       const sale = await tx.sale.findUnique({
         where: { id: parsed.data.saleId },
         include: { customer: true, items: { include: { serialDevice: true } } },
@@ -76,7 +85,11 @@ export async function POST(req: NextRequest) {
         if (alreadyReturned + item.quantity > saleItem.quantity) {
           throw new Error(`Return quantity exceeds remaining quantity for sale item ${item.saleItemId}`);
         }
-        refundAmount += item.refundAmount;
+        const expectedRefund = Number(saleItem.unitPrice) * item.quantity;
+        if (Math.abs(item.refundAmount - expectedRefund) > 0.01) {
+          throw new Error("Refund amount must match the original sale price and return quantity");
+        }
+        refundAmount += expectedRefund;
       }
 
       const saleReturn = await tx.saleReturn.create({
@@ -143,7 +156,7 @@ export async function POST(req: NextRequest) {
       });
 
       return saleReturn;
-    }, { maxWait: 10000, timeout: 20000 });
+    }, { maxWait: 10000, timeout: 20000, isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
 
     await Promise.allSettled([
       prisma.transaction.create({ data: { branchId: parsed.data.branchId, type: "SALE_RETURN", referenceId: result.id, amount: result.refundAmount } }),
@@ -153,6 +166,9 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ return: result }, { status: 201 });
   } catch (error) {
     console.error("POST /api/returns error:", error);
+    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2034") {
+      return NextResponse.json({ message: "This sale is being processed by another return request. Refresh the page and check remaining quantities before trying again." }, { status: 409 });
+    }
     return NextResponse.json({ message: error instanceof Error ? error.message : "Unable to process return" }, { status: 400 });
   }
 }

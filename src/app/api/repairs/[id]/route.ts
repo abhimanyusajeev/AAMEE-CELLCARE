@@ -34,7 +34,10 @@ function buildReport(repair: any) {
   const customer = repair.customer?.name || "Customer";
   const device = [repair.device?.brand, repair.device?.model].filter(Boolean).join(" ") || "your device";
   const stage = statusText[repair.status] || repair.status;
-  return `Hello ${customer},\n\nAamee Cellcare update\nJob Card: ${repair.ticketNumber}\nDevice: ${device}\nStatus: ${stage}\nIssue: ${repair.issue}\nEstimate: ₹${Number(repair.estimate || 0).toLocaleString("en-IN")}\nBalance: ₹${Number(repair.balanceAmount || 0).toLocaleString("en-IN")}\n\nThank you,\nAamee Cellcare`;
+  const baseUrl = (process.env.NEXT_PUBLIC_APP_URL || "").trim().replace(/\/+$/, "");
+  const trackingUrl = baseUrl ? `${baseUrl}/track?id=${encodeURIComponent(repair.id)}` : "";
+  const trackingLine = trackingUrl ? `\n\n\u{1F50E} Track your repair:\n${trackingUrl}` : "";
+  return `Hi ${customer} \u{1F44B}\n\nYour AAMEE CELLCARE repair update \u{1F4F2}\n\n\u{1F4CB} Job Card: ${repair.ticketNumber}\n\u{1F4F1} Device: ${device}\n\u{1F4C5} Status: ${stage}\n\u{1F4B0} Estimated Cost: ₹${Number(repair.estimate || 0).toLocaleString("en-IN")}\n\u{1F4B5} Balance Due: ₹${Number(repair.balanceAmount || 0).toLocaleString("en-IN")}\n\nThank you for choosing us!${trackingLine}\n\n— AAMEE CELLCARE\n\u{1F4DE} 9207277210\n\u{1F4DE} 9207277770`;
 }
 
 

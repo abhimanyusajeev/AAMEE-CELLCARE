@@ -1,5 +1,6 @@
 "use client";
 import { useMemo, useState } from "react";
+import Link from "next/link";
 import { CheckCircle2, MessageCircle, PackagePlus, Send, Wrench } from "lucide-react";
 import { buildWhatsAppLink } from "@/lib/whatsapp";
 
@@ -24,22 +25,47 @@ export function RepairDetail({ repair, technicians, products }: { repair: any; t
     const r = await fetch(`/api/repairs/${row.id}`, { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify(payload) });
     const data = await r.json().catch(() => ({}));
     setSaving(false);
-    if (!r.ok) {
-  setToast(data.message || "Unable to save");
-  return;
-}
+    if (!r.ok) { setToast(data.message || "Unable to save"); return; }
     setRow(data.repair); setSelectedStatus(data.repair.status); setToast(data.whatsapp?.sent ? "Saved and WhatsApp update sent." : "Saved successfully.");
   }
 
   async function addAccessory() { if (!accessory.trim()) return; await patch({ addAccessory: { name: accessory.trim(), quantity: 1 } }); setAccessory(""); }
   async function addPart() { if (!partId) return; await patch({ addPart: { productVariantId: partId, quantity: Number(partQty || 1) } }); setPartId(""); setPartQty("1"); }
-  function openWhatsApp() {
+  function openWhatsApp(stage: "created" | "completed" | "pickup" | "bill") {
     const phone = row.customer?.phone;
     if (!phone) { setToast("Customer phone number is missing."); return; }
+
     const customer = row.customer?.name || "Customer";
     const device = [row.device?.brand, row.device?.model].filter(Boolean).join(" ") || "your device";
-    const stage = statusLabel[row.status] || row.status;
-    const message = `Hello ${customer},\n\nAamee Cellcare update\nJob Card: ${row.ticketNumber}\nDevice: ${device}\nStatus: ${stage}\nIssue: ${row.issue || "-"}\nEstimate: ₹${Number(row.estimate || 0).toLocaleString("en-IN")}\nBalance: ₹${Number(row.balanceAmount || 0).toLocaleString("en-IN")}\n\nThank you,\nAamee Cellcare`;
+    const totalAmount = `₹${Number(row.approvedAmount ?? row.estimate ?? 0).toLocaleString("en-IN")}`;
+    const estimate = `₹${Number(row.estimate || 0).toLocaleString("en-IN")}`;
+    const advance = `₹${Number(row.advanceAmount || 0).toLocaleString("en-IN")}`;
+    const balance = `₹${Number(row.balanceAmount || 0).toLocaleString("en-IN")}`;
+
+    // The public tracking page displays only repair progress and basic device details.
+    // Configure NEXT_PUBLIC_APP_URL in Vercel to ensure customer links never point to localhost.
+    const configuredBaseUrl = (process.env.NEXT_PUBLIC_APP_URL || "").trim().replace(/\/+$/, "");
+    const currentOrigin = typeof window !== "undefined" ? window.location.origin : "";
+    const trackingBaseUrl = configuredBaseUrl || (currentOrigin && !/localhost|127\.0\.0\.1/i.test(currentOrigin) ? currentOrigin : "");
+    const trackingUrl = trackingBaseUrl
+      ? `${trackingBaseUrl}/track?id=${encodeURIComponent(row.id)}`
+      : "";
+    const trackingLine = trackingUrl ? `\n\n\u{1F50E} Track your repair:\n${trackingUrl}` : "\n\nPlease contact AAMEE CELLCARE for a repair status update.";
+    const signature = `\n\n— AAMEE CELLCARE\n\u{1F4DE} 9207277210\n\u{1F4DE} 9207277770`;
+    const terms = `\n\n\u{1F4CC} Terms & Conditions\n• Please submit this job sheet when collecting your device.\n• Collect the device within 15 days after bill payment.\n• We are not responsible for devices left over 30 days from entry.\n• Report service-related complaints within 48 hours of collection.\n• We are not responsible for issues caused by repairs done elsewhere after our service.\n• Hardware/software issues in water-damaged or dropped devices are handled at the customer\u2019s risk.`;
+    let message = "";
+
+    if (stage === "created") {
+      message = `Hi ${customer} \u{1F44B}\n\nYour job card has been created successfully! \u{1F389}\n\n\u{1F4CB} Job Card: ${row.ticketNumber}\n\u{1F4F1} Device: ${device}\n\u{1F527} Problem: ${row.issue || "-"}\n\u{1F4B0} Estimated Cost: ${estimate}\n\u{1F4B5} Advance Paid: ${advance}\n\nWe will keep you updated on the progress.${terms}${signature}${trackingLine}`;
+    } else if (stage === "completed") {
+      message = `Hi ${customer},\n\nThe repair work on your device is complete! \u{2705}\n\n\u{1F4CB} Job Card: ${row.ticketNumber}\n\u{1F4F1} Device: ${device}\n\nFinal checks are in progress — we will notify you when it is ready for pickup.${terms}${signature}${trackingLine}`;
+    } else if (stage === "pickup") {
+      message = `Hi ${customer} \u{1F389}\n\nYour device is ready for pickup! \u{2705}\n\n\u{1F4CB} Job Card: ${row.ticketNumber}\n\u{1F4F1} Device: ${device}\n\u{1F4B0} Total Amount: ${totalAmount}\n\u{1F4B5} Balance Due: ${balance}\n\nPlease visit us to collect your device.${terms}${signature}${trackingLine}`;
+    } else {
+      const parts = (row.parts ?? []).map((p: any) => `• ${p.productVariant?.product?.name || "Part"} ${p.productVariant?.name || ""} × ${p.quantity}: ₹${(Number(p.unitPrice) * Number(p.quantity)).toLocaleString("en-IN")}`).join("\n") || "No spare parts listed";
+      message = `\u{1F9FE} AAMEE CELLCARE — REPAIR BILL\n\n\u{1F44B} Hi ${customer},\n\u{1F4CB} Job Card: ${row.ticketNumber}\n\u{1F4F1} Device: ${device}\n\u{1F527} Problem: ${row.issue || "-"}\n\n\u{1F9F0} Parts / Work:\n${parts}\n\n\u{1F4B0} Estimated / Approved Total: ${totalAmount}\n\u{1F4B5} Advance Paid: ${advance}\n\u{1F4B3} Balance Due: ${balance}${terms}${signature}${trackingLine}`;
+    }
+
     const url = buildWhatsAppLink(phone, message);
     if (url) window.open(url, "_blank", "noopener,noreferrer");
   }
@@ -48,7 +74,15 @@ export function RepairDetail({ repair, technicians, products }: { repair: any; t
     <div className="rounded-2xl bg-white p-4 shadow-sm ring-1 ring-slate-200 sm:p-6">
       <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
         <div><div className="text-xs font-bold uppercase tracking-wider text-blue-700">Job Card</div><h1 className="mt-1 text-2xl font-black text-slate-900 sm:text-3xl">{row.ticketNumber}</h1><p className="mt-1 text-sm text-slate-500">{row.customer?.name || "Walk-in customer"} · {row.device?.brand || "Device"} {row.device?.model || ""}</p></div>
-        <div className="flex flex-wrap gap-2"><select value={selectedStatus} disabled={saving} onChange={e => { setSelectedStatus(e.target.value); patch({ status: e.target.value }); }} className="rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm font-semibold">{statuses.map(([v,l]) => <option key={v} value={v}>{l}</option>)}</select><button onClick={openWhatsApp} disabled={saving || !row.customer?.phone} title={!row.customer?.phone ? "Customer phone number is missing" : "Open WhatsApp with a pre-filled message"} className="inline-flex items-center gap-2 rounded-xl bg-[#25D366] px-4 py-2 text-sm font-bold text-white disabled:cursor-not-allowed disabled:opacity-50"><MessageCircle size={17}/> WhatsApp Customer</button>{row.invoice ? <span className="inline-flex items-center rounded-xl bg-emerald-50 px-3 py-2 text-xs font-bold text-emerald-700">Invoice {row.invoice.invoiceNumber}</span> : <button onClick={()=>patch({createInvoice:true})} disabled={saving} className="rounded-xl border border-slate-300 bg-white px-4 py-2 text-sm font-bold text-slate-800">Generate Invoice</button>}</div>
+        <div className="flex flex-wrap gap-2"><select value={selectedStatus} disabled={saving} onChange={e => { setSelectedStatus(e.target.value); patch({ status: e.target.value }); }} className="rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm font-semibold">{statuses.map(([v,l]) => <option key={v} value={v}>{l}</option>)}</select><div className="flex flex-wrap gap-2">
+          <button onClick={() => openWhatsApp("created")} disabled={saving || !row.customer?.phone} title="Send the job-card-created message" className="inline-flex items-center gap-2 rounded-xl bg-[#25D366] px-3 py-2 text-sm font-bold text-white disabled:cursor-not-allowed disabled:opacity-50"><MessageCircle size={16}/> Job Card Created</button>
+          <button onClick={() => openWhatsApp("completed")} disabled={saving || !row.customer?.phone} title="Send the repair-completed message" className="inline-flex items-center gap-2 rounded-xl bg-[#128C7E] px-3 py-2 text-sm font-bold text-white disabled:cursor-not-allowed disabled:opacity-50"><MessageCircle size={16}/> Repair Completed</button>
+          <button onClick={() => openWhatsApp("pickup")} disabled={saving || !row.customer?.phone} title="Send the ready-for-pickup message" className="inline-flex items-center gap-2 rounded-xl bg-[#075E54] px-3 py-2 text-sm font-bold text-white disabled:cursor-not-allowed disabled:opacity-50"><MessageCircle size={16}/> Ready for Pickup</button>
+        </div><div className="flex flex-wrap gap-2">
+          <Link href={`/repairs/${row.id}/job-sheet`} className="inline-flex items-center rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm font-bold text-slate-800 print:hidden">Print Job Sheet</Link>
+          <Link href={`/repairs/${row.id}/invoice`} className="inline-flex items-center rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm font-bold text-slate-800 print:hidden">Print Repair Bill</Link>
+          <button onClick={() => openWhatsApp("bill")} disabled={saving || !row.customer?.phone} className="inline-flex items-center gap-2 rounded-xl bg-[#25D366] px-3 py-2 text-sm font-bold text-white disabled:opacity-50"><MessageCircle size={16}/> WhatsApp Repair Bill</button>
+        </div>{row.invoice ? <span className="inline-flex items-center rounded-xl bg-emerald-50 px-3 py-2 text-xs font-bold text-emerald-700">Invoice {row.invoice.invoiceNumber}</span> : <button onClick={()=>patch({createInvoice:true})} disabled={saving} className="rounded-xl border border-slate-300 bg-white px-4 py-2 text-sm font-bold text-slate-800">Generate Invoice</button>}</div>
       </div>
       <div className="mt-5 grid gap-2 overflow-x-auto sm:grid-cols-4 xl:grid-cols-8">{statuses.slice(0,7).map(([value,label], i) => <div key={value} className={`min-w-[130px] rounded-xl border p-3 ${row.status === value ? "border-blue-300 bg-blue-50" : "border-slate-200 bg-slate-50"}`}><div className="flex items-center gap-2 text-xs font-bold"><span className="grid h-6 w-6 place-items-center rounded-full bg-white ring-1 ring-slate-200">{i + 1}</span>{label}</div>{row.status === value && <div className="mt-1 text-[11px] text-blue-700">Current stage</div>}</div>)}</div>
     </div>

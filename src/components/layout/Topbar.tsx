@@ -95,15 +95,15 @@ export function Topbar({
   }
 
   return (
-    <header className="sticky top-0 z-30 flex min-h-16 flex-wrap items-center justify-between gap-2 border-b border-slate-200 bg-white/95 px-3 py-2 pl-16 backdrop-blur sm:px-4 sm:pl-16 lg:pl-4">
-      <div className="min-w-0"><div className="truncate text-sm font-semibold text-slate-900">Welcome back, {userName}!</div><div className="hidden text-xs text-slate-500 sm:block">Manage your inventory, sales and services at Aamee Cellcare.</div></div>
+    <header className="sticky top-0 z-30 flex min-h-16 flex-wrap items-center justify-between gap-2 border-b border-slate-200/80 bg-white/95 px-3 py-2 pl-[3.75rem] backdrop-blur-xl sm:px-5 sm:pl-16 lg:pl-5">
+      <div className="min-w-0"><div className="truncate text-sm font-bold text-slate-900 sm:text-base">Welcome, {userName}!</div><div className="hidden text-xs text-slate-500 md:block">Your shop at a glance · Aamee Cellcare</div></div>
 
       <div className="flex min-w-0 items-center gap-2 sm:gap-3">
         <select
           value={role === "OWNER" ? branchId : branches[0]?.id ?? ""}
           disabled={role !== "OWNER" || !branches.length}
           onChange={(e) => persistBranch(e.target.value)}
-          className="max-w-[150px] rounded-lg border border-slate-300 bg-white px-2 py-2 text-xs sm:max-w-none sm:px-3 sm:text-sm"
+          className="max-w-[132px] rounded-xl border border-slate-200 bg-slate-50 px-2.5 py-2.5 text-xs font-semibold text-slate-700 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100 sm:max-w-[220px] sm:px-3 sm:text-sm"
           aria-label="Select shop"
         >
           {role === "OWNER" && <option value="ALL">All Shops</option>}
@@ -122,7 +122,7 @@ export function Topbar({
         <button
           type="button"
           onClick={logout}
-          className="rounded-lg border border-slate-200 px-2.5 py-2 text-xs text-slate-700 hover:bg-slate-50 sm:px-3 sm:text-sm"
+          className="min-h-10 rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700 transition hover:bg-slate-50 sm:text-sm"
         >
           Logout
         </button>

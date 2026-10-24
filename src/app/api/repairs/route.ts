@@ -6,7 +6,15 @@ import { buildWhatsAppLink, normalizeWhatsAppPhone } from "@/lib/whatsapp";
 
 const Schema = z.object({ branchId:z.string(), customerId:z.string().optional(), deviceType:z.enum(["MOBILE","LAPTOP","TABLET","OTHER"]), serviceType:z.enum(["REPAIR","SERVICE","UPGRADE","MAINTENANCE","DIAGNOSIS"]), issue:z.string().min(1), brand:z.string().optional(), model:z.string().optional(), imei:z.string().optional(), serialNumber:z.string().optional(), ram:z.string().optional(), storage:z.string().optional(), color:z.string().optional(), chargerReceived:z.boolean().optional(), bagReceived:z.boolean().optional(), condition:z.string().optional(), passwordNote:z.string().optional(), estimate:z.number().nonnegative().optional(), promisedDate:z.string().optional(), accessories:z.array(z.string()).optional(), inspection:z.array(z.object({item:z.string().min(1),status:z.enum(["YES","NO","N/A"]),note:z.string().optional()})).optional(), sendWhatsApp:z.boolean().optional() });
 
-function buildReceivedReport(repair:any) { const customer=repair.customer?.name||"Customer"; const device=[repair.device?.brand,repair.device?.model].filter(Boolean).join(" ")||"Device"; return `Hello ${customer},\n\nAamee Cellcare\nJob Card: ${repair.ticketNumber}\nDevice: ${device}\nStatus: Device received\nComplaint: ${repair.issue}\nEstimated Cost: ₹${Number(repair.estimate||0).toLocaleString("en-IN")}\n\nWe will update you at each repair stage.\nThank you, Aamee Cellcare`; }
+function buildReceivedReport(repair: any) {
+  const customer = repair.customer?.name || "Customer";
+  const device = [repair.device?.brand, repair.device?.model].filter(Boolean).join(" ") || "your device";
+  const baseUrl = (process.env.NEXT_PUBLIC_APP_URL || "").trim().replace(/\/+$/, "");
+  const trackingUrl = baseUrl ? `${baseUrl}/track?id=${encodeURIComponent(repair.id)}` : "";
+  const trackingLine = trackingUrl ? `\n\n\u{1F50E} Track your repair:\n${trackingUrl}` : "";
+  const signature = `\n\n— AAMEE CELLCARE\n\u{1F4DE} 9207277210\n\u{1F4DE} 9207277770`;
+  return `Hi ${customer} \u{1F44B}\n\nYour job card has been created successfully! \u{1F389}\n\n\u{1F4CB} Job Card: ${repair.ticketNumber}\n\u{1F4F1} Device: ${device}\n\u{1F527} Problem: ${repair.issue || "-"}\n\u{1F4B0} Estimated Cost: ₹${Number(repair.estimate || 0).toLocaleString("en-IN")}\n\u{1F4B5} Advance Paid: ₹${Number(repair.advanceAmount || 0).toLocaleString("en-IN")}\n\nWe will keep you updated on the progress.${signature}${trackingLine}`;
+}
 
 export async function GET(req:NextRequest){const u=await requireAuth(req);const branchFilter=u.role==="OWNER"?{isActive:true}:{isActive:true,assignments:{some:{userId:u.id}}};return NextResponse.json({repairs:await prisma.repairJob.findMany({where:{branch:branchFilter},include:{customer:true,branch:true,technician:true,device:true},orderBy:{createdAt:"desc"},take:500})});}
 

@@ -6,6 +6,7 @@ import {
   useSearchParams,
 } from "next/navigation";
 import { Eye, EyeOff } from "lucide-react";
+import Image from "next/image";
 
 export default function LoginForm() {
   const router = useRouter();
@@ -105,7 +106,7 @@ export default function LoginForm() {
         className="w-full max-w-md rounded-2xl bg-white p-7 shadow-2xl"
       >
         <div className="text-xs font-bold tracking-[0.25em] text-blue-700">
-          AAMEE CELLCARE
+          <Image src="/branding/aamee-cellcare-logo.png" alt="Aamee Cellcare logo" width={1030} height={490} priority className="mx-auto mb-5 h-auto w-56 object-contain" />
         </div>
 
         <h1 className="mt-2 text-2xl font-extrabold">
