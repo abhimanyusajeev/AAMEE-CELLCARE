@@ -74,7 +74,7 @@ export async function POST(request: NextRequest) {
         data: {
           name: data.name,
           sku: data.sku,
-          barcode: data.barcode || null,
+          barcode: data.barcode || data.sku,
           brand: data.brand || null,
           categoryId,
           productType: data.productType,

@@ -1,0 +1,7 @@
+const CODE39: Record<string,string> = {
+  "0":"nnnwwnwnn","1":"wnnwnnnnw","2":"nnwwnnnnw","3":"wnwwnnnnn","4":"nnnwwnnnw","5":"wnnwwnnnn","6":"nnwwwnnnn","7":"nnnwnnwnw","8":"wnnwnnwnn","9":"nnwwnnwnn",
+  A:"wnnnnwnnw",B:"nnwnnwnnw",C:"wnwnnwnnn",D:"nnnnwwnnw",E:"wnnnwwnnn",F:"nnwnwwnnn",G:"nnnnnwwnw",H:"wnnnnwwnn",I:"nnwnnwwnn",J:"nnnnwwwnn",
+  K:"wnnnnnnww",L:"nnwnnnnww",M:"wnwnnnnwn",N:"nnnnwnnww",O:"wnnnwnnwn",P:"nnwnwnnwn",Q:"nnnnnnwww",R:"wnnnnnwwn",S:"nnwnnnwwn",T:"nnnnwnwwn",
+  U:"wwnnnnnnw",V:"nwwnnnnnw",W:"wwwnnnnnn",X:"nwnnwnnnw",Y:"wwnnwnnnn",Z:"nwwnwnnnn","-":"nwnnnnwnw",".":"wwnnnnwnn"," ":"nwwnnnwnn","$":"nwnwnwnnn","/":"nwnwnnnwn","+":"nwnnnwnwn","%":"nnnwnwnwn","*":"nwnnwnwnn"
+};
+export default function Barcode({value}:{value:string|null|undefined}){const text=(value||"").toUpperCase().replace(/[^0-9A-Z. $/+%*-]/g,"");if(!text)return <span className="text-xs text-slate-400">No barcode</span>;const encoded=`*${text}*`;let x=8;const bars:string[]=[];for(const ch of encoded){const pattern=CODE39[ch]||CODE39["-"];for(let i=0;i<pattern.length;i++){const width=pattern[i]==="w"?3:1;if(i%2===0)bars.push(`<rect x="${x}" y="2" width="${width}" height="42"/>`);x+=width;}x+=1;}return <div className="inline-flex flex-col items-center gap-1"><svg role="img" aria-label={`Code 39 barcode ${text}`} viewBox={`0 0 ${x+8} 48`} className="h-12 max-w-full fill-black"><g dangerouslySetInnerHTML={{__html:bars.join("")}}/></svg><span className="font-mono text-[10px] tracking-widest">{text}</span></div>}

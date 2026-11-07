@@ -20,6 +20,7 @@ type CartItem = {
   variantName: string;
   unitPrice: number;
   quantity: number;
+  discountRate: number;
   productType: string;
   serialDeviceIds: string[];
   devices: Device[];
@@ -65,7 +66,9 @@ export default function NewSale() {
   }, []);
 
   const visible = products.filter((p) => `${p.name} ${p.sku}`.toLowerCase().includes(q.toLowerCase())).slice(0, 30);
-  const total = useMemo(() => cart.reduce((sum, item) => sum + item.unitPrice * item.quantity, 0), [cart]);
+  const subtotal = useMemo(() => cart.reduce((sum, item) => sum + item.unitPrice * item.quantity, 0), [cart]);
+  const discountTotal = useMemo(() => cart.reduce((sum, item) => sum + item.unitPrice * item.quantity * item.discountRate / 100, 0), [cart]);
+  const total = subtotal - discountTotal;
 
   async function loadAvailableDevices(branch: string, variantId: string) {
     const cacheKey = `${branch}:${variantId}`;
@@ -113,6 +116,7 @@ export default function NewSale() {
           variantName: variant.name,
           unitPrice: Number(variant.sellingPrice),
           quantity: 1,
+          discountRate: 0,
           productType: product.productType,
           serialDeviceIds: [availableDevice.id],
           devices,
@@ -136,6 +140,7 @@ export default function NewSale() {
         variantName: variant.name,
         unitPrice: Number(variant.sellingPrice),
         quantity: 1,
+        discountRate: 0,
         productType: product.productType,
         serialDeviceIds: [],
         devices: [],
@@ -175,6 +180,7 @@ export default function NewSale() {
         items: cart.map((item) => ({
           productVariantId: item.productVariantId,
           quantity: item.quantity,
+          discountRate: item.discountRate,
           unitPrice: item.unitPrice,
           serialDeviceIds: item.serialDeviceIds,
         })),
@@ -215,14 +221,14 @@ export default function NewSale() {
         <label className="text-sm font-medium">Customer<select value={customerId} onChange={(e) => setCustomerId(e.target.value)} className="mt-2 w-full rounded-lg border p-3"><option value="">Walk-in customer</option>{customers.map((c) => <option key={c.id} value={c.id}>{c.name} — {c.phone}</option>)}</select></label>
         <div className="mt-4 space-y-2">
           {cart.map((item) => <div key={item.key} className="rounded-lg bg-slate-50 p-3">
-            <div className="flex items-start justify-between gap-3"><div><div className="font-medium">{item.name}</div><div className="text-xs text-slate-500">{item.variantName} • {item.quantity} × ₹{item.unitPrice.toLocaleString("en-IN")}</div></div><button onClick={() => setCart((items) => items.filter((x) => x.key !== item.key))} className="text-xs text-red-600">Remove</button></div>
+            <div className="flex items-start justify-between gap-3"><div><div className="font-medium">{item.name}</div><div className="text-xs text-slate-500">{item.variantName} • {item.quantity} × ₹{item.unitPrice.toLocaleString("en-IN")}</div><label className="mt-2 block text-xs font-semibold text-slate-600">Discount (%)<input type="number" min="0" max="100" step="0.5" value={item.discountRate} onChange={e=>setCart(lines=>lines.map(line=>line.key===item.key?{...line,discountRate:Math.max(0,Math.min(100,Number(e.target.value)||0))}:line))} className="mt-1 w-24 rounded-lg border p-2"/></label><div className="mt-1 text-xs text-emerald-700">Discount: ₹{(item.unitPrice*item.quantity*item.discountRate/100).toLocaleString("en-IN")}</div></div><button onClick={() => setCart((items) => items.filter((x) => x.key !== item.key))} className="text-xs text-red-600">Remove</button></div>
             {item.productType === "MOBILE" && <select value={item.serialDeviceIds[0] ?? ""} onChange={(e) => changeMobileDevice(item.key, e.target.value)} className="mt-3 w-full rounded-lg border p-2 text-sm"><option value="">Select IMEI</option>{item.devices.map((d) => <option key={d.id} value={d.id}>{d.imei1}{d.imei2 ? ` / ${d.imei2}` : ""}</option>)}</select>}
           </div>)}
           {!cart.length && <div className="rounded-lg bg-slate-50 p-5 text-sm text-slate-500">Cart is empty.</div>}
         </div>
 
         <div className="mt-5 border-t pt-4">
-          <div className="flex justify-between text-lg font-bold"><span>Total</span><span>₹{total.toLocaleString("en-IN")}</span></div>
+          <div className="space-y-1 text-sm"><div className="flex justify-between"><span>Subtotal</span><span>₹{subtotal.toLocaleString("en-IN")}</span></div><div className="flex justify-between text-emerald-700"><span>Discount</span><span>− ₹{discountTotal.toLocaleString("en-IN")}</span></div><div className="flex justify-between border-t pt-2 text-lg font-bold"><span>Grand Total</span><span>₹{total.toLocaleString("en-IN")}</span></div></div>
           <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-4">{["CASH", "UPI", "BANK_TRANSFER", "BAJAJ_EMI"].map((m) => <button type="button" key={m} onClick={() => setMethod(m)} className={`rounded-lg border px-2 py-2 text-xs font-semibold ${method === m ? "border-blue-600 bg-blue-50 text-blue-700" : ""}`}>{m.replaceAll("_", " ")}</button>)}</div>
           {method !== "CASH" && <input value={reference} onChange={(e) => setReference(e.target.value)} className="mt-3 w-full rounded-lg border p-2" placeholder="Payment reference (optional)" />}
           {method === "BAJAJ_EMI" && <div className="mt-3 space-y-2 rounded-lg border p-3"><input value={emiProvider} onChange={(e) => setEmiProvider(e.target.value)} className="w-full rounded border p-2" placeholder="Provider" /><input value={emiReference} onChange={(e) => setEmiReference(e.target.value)} className="w-full rounded border p-2" placeholder="Bajaj application/reference" /><div className="grid grid-cols-2 gap-2"><input type="number" min={1} value={emiTenure} onChange={(e) => setEmiTenure(Number(e.target.value))} className="rounded border p-2" placeholder="Tenure" /><input type="number" min={0} value={emiAmount} onChange={(e) => setEmiAmount(Number(e.target.value))} className="rounded border p-2" placeholder="EMI amount" /></div></div>}

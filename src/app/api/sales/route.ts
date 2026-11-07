@@ -9,6 +9,7 @@ const ItemSchema = z.object({
   productVariantId: z.string().min(1),
   quantity: z.number().int().positive(),
   unitPrice: z.number().nonnegative(),
+  discountRate: z.number().min(0).max(100).default(0),
   serialDeviceIds: z.array(z.string().min(1)).default([]),
 });
 
@@ -102,6 +103,7 @@ export async function POST(request: NextRequest) {
     if (new Set(serialIds).size !== serialIds.length) throw new Error("The same IMEI/device cannot be selected twice");
 
     let subtotal = new Prisma.Decimal(0);
+    let discountTotal = new Prisma.Decimal(0);
     for (const item of parsed.data.items) {
       const variant = variantMap.get(item.productVariantId)!;
       const available = inventoryMap.get(item.productVariantId) ?? 0;
@@ -122,11 +124,14 @@ export async function POST(request: NextRequest) {
         }
       }
 
-      subtotal = subtotal.add(new Prisma.Decimal(item.unitPrice).mul(item.quantity));
+      const lineGross = new Prisma.Decimal(item.unitPrice).mul(item.quantity);
+      subtotal = subtotal.add(lineGross);
+      discountTotal = discountTotal.add(lineGross.mul(item.discountRate).div(100));
     }
 
+    const saleTotal = subtotal.sub(discountTotal);
     const paymentAmount = new Prisma.Decimal(parsed.data.payment.amount);
-    if (!paymentAmount.eq(subtotal)) {
+    if (!paymentAmount.eq(saleTotal)) {
       throw new Error("Credit/partial payment is disabled. Payment must equal the bill total.");
     }
 
@@ -145,19 +150,19 @@ export async function POST(request: NextRequest) {
           customerId: parsed.data.customerId,
           createdById: user.id,
           subtotal,
-          total: subtotal,
+          total: saleTotal,
           notes: parsed.data.notes || null,
           items: {
             create: parsed.data.items.flatMap((item) => {
               if (item.serialDeviceIds.length === 0) {
-                return [{ productVariantId: item.productVariantId, quantity: item.quantity, unitPrice: item.unitPrice, discountAmount: 0, taxAmount: 0 }];
+                return [{ productVariantId: item.productVariantId, quantity: item.quantity, unitPrice: item.unitPrice, discountAmount: new Prisma.Decimal(item.unitPrice).mul(item.quantity).mul(item.discountRate).div(100), taxAmount: 0 }];
               }
               return item.serialDeviceIds.map((serialDeviceId) => ({
                 productVariantId: item.productVariantId,
                 serialDeviceId,
                 quantity: 1,
                 unitPrice: item.unitPrice,
-                discountAmount: 0,
+                discountAmount: new Prisma.Decimal(item.unitPrice).mul(item.discountRate).div(100),
                 taxAmount: 0,
               }));
             }),
@@ -248,7 +253,7 @@ export async function POST(request: NextRequest) {
         parsed.data.customerId
           ? prisma.customerVisit.create({ data: { customerId: parsed.data.customerId, branchId: parsed.data.branchId, type: "SALE", createdById: user.id } })
           : Promise.resolve(),
-        prisma.transaction.create({ data: { branchId: parsed.data.branchId, type: "SALE", referenceId: result.sale.id, referenceNo: result.invoice.invoiceNumber, amount: subtotal } }),
+        prisma.transaction.create({ data: { branchId: parsed.data.branchId, type: "SALE", referenceId: result.sale.id, referenceNo: result.invoice.invoiceNumber, amount: saleTotal } }),
         prisma.auditLog.create({ data: {
           branchId: parsed.data.branchId, actorId: user.id, action: "CREATE", entityType: "SALE", entityId: result.sale.id,
           metadata: { invoiceNumber: result.invoice.invoiceNumber, paymentMethod: parsed.data.payment.method },
