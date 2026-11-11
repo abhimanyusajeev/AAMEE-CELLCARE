@@ -492,6 +492,7 @@ model RepairJob {
   estimate       Decimal?              @db.Decimal(12, 2)
   approvedAmount Decimal?              @db.Decimal(12, 2)
   advanceAmount  Decimal               @default(0) @db.Decimal(12, 2)
+  discountAmount Decimal               @default(0) @db.Decimal(12, 2)
   balanceAmount  Decimal               @default(0) @db.Decimal(12, 2)
   technicianId   String?
   promisedDate   DateTime?
@@ -887,6 +888,7 @@ enum RepairStatus {
 }
 
 enum RepairServiceType {
+  REWORK
   REPAIR
   SERVICE
   UPGRADE

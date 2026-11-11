@@ -10,6 +10,8 @@ const Schema = z.object({
   diagnosis: z.string().max(2000).optional(),
   approvedAmount: z.number().nonnegative().optional(),
   estimate: z.number().nonnegative().optional(),
+  discountAmount: z.number().nonnegative().optional(),
+  advanceAmount: z.number().nonnegative().optional(),
   notes: z.string().max(2000).optional(),
   technicianId: z.string().nullable().optional(),
   inspection: z.object({ item: z.string().min(1).max(100), status: z.enum(["YES", "NO", "N/A"]), note: z.string().max(500).optional() }).optional(),
@@ -63,20 +65,48 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
   const existing = await prisma.repairJob.findUnique({ where: { id }, include: { customer: true, device: true } });
   if (!existing) return NextResponse.json({ message: "Repair not found" }, { status: 404 });
   await requireBranchAccess(u.id, u.role, existing.branchId);
+  const proposedFinal = Number(p.approvedAmount ?? p.estimate ?? existing.approvedAmount ?? existing.estimate ?? 0);
+  const proposedDiscount = Number(p.discountAmount ?? (existing as any).discountAmount ?? 0);
+  const proposedAdvance = Number(p.advanceAmount ?? existing.advanceAmount);
+  if (proposedDiscount > proposedFinal) return NextResponse.json({message:"Discount cannot exceed the final amount."},{status:400});
+  if (proposedAdvance > proposedFinal - proposedDiscount) return NextResponse.json({message:"Advance cannot exceed the discounted final amount."},{status:400});
 
   try {
     await prisma.$transaction(async (tx) => {
       const data: any = {};
-      for (const key of ["diagnosis", "approvedAmount", "estimate", "notes", "technicianId"] as const) if (key in p) data[key] = p[key];
+      for (const key of ["diagnosis", "approvedAmount", "estimate", "discountAmount", "notes", "technicianId"] as const) if (key in p) data[key] = p[key];
       if (p.status) data.status = p.status;
-      if (p.status === "DELIVERED") data.deliveredAt = new Date();
+      if (p.status === "DELIVERED" && existing.status !== "DELIVERED") data.deliveredAt = new Date();
       if (p.status === "READY_FOR_PICKUP") data.completedAt = new Date();
-      if (p.approvedAmount !== undefined) data.balanceAmount = Math.max(0, p.approvedAmount - Number(existing.advanceAmount));
-      if (p.estimate !== undefined && p.approvedAmount === undefined) data.balanceAmount = Math.max(0, p.estimate - Number(existing.advanceAmount));
+      const finalAmount = p.approvedAmount ?? p.estimate ?? Number(existing.approvedAmount ?? existing.estimate ?? 0);
+      const discountAmount = p.discountAmount ?? Number((existing as any).discountAmount ?? 0);
+      const advanceAmount = p.advanceAmount ?? Number(existing.advanceAmount);
+      if (p.advanceAmount !== undefined && p.advanceAmount > Number(existing.advanceAmount)) {
+        const extraAdvance = p.advanceAmount - Number(existing.advanceAmount);
+        await tx.repairPayment.create({ data: { branchId: existing.branchId, repairJobId: id, amount: extraAdvance, paymentType: "ADVANCE" } });
+        data.advanceAmount = p.advanceAmount;
+      }
+      if (p.approvedAmount !== undefined || p.estimate !== undefined || p.discountAmount !== undefined || p.advanceAmount !== undefined) {
+        data.balanceAmount = Math.max(0, finalAmount - discountAmount - advanceAmount);
+      }
       if (Object.keys(data).length) await tx.repairJob.update({ where: { id }, data });
 
       if (p.status && p.status !== existing.status) {
         await tx.repairStatusHistory.create({ data: { repairJobId: id, oldStatus: existing.status, newStatus: p.status, changedById: u.id } });
+      }
+      if (p.status === "DELIVERED" && existing.status !== "DELIVERED") {
+        const finalAmount = Number(p.approvedAmount ?? p.estimate ?? existing.approvedAmount ?? existing.estimate ?? 0);
+        const discount = Number(p.discountAmount ?? (existing as any).discountAmount ?? 0);
+        const netTotal = Math.max(0, finalAmount - discount);
+        const priorInvoice = await tx.repairInvoice.findUnique({ where: { repairJobId: id } });
+        if (!priorInvoice) {
+          const invoiceCount = await tx.repairInvoice.count({ where: { branchId: existing.branchId } });
+          await tx.repairInvoice.create({ data: { branchId: existing.branchId, repairJobId: id, invoiceNumber: `SR-${String(invoiceCount + 1).padStart(5, "0")}`, subtotal: finalAmount, discount, total: netTotal, status: "ISSUED" } });
+        } else {
+          await tx.repairInvoice.update({ where: { repairJobId: id }, data: { subtotal: finalAmount, discount, total: netTotal, status: "ISSUED" } });
+        }
+        const priorTransaction = await tx.transaction.findFirst({ where: { branchId: existing.branchId, type: "REPAIR", referenceId: id } });
+        if (!priorTransaction) await tx.transaction.create({ data: { branchId: existing.branchId, type: "REPAIR", referenceId: id, referenceNo: existing.ticketNumber, amount: netTotal, note: `Repair ${existing.serviceType} revenue` } });
       }
       if (p.inspection) await tx.repairInspection.upsert({ where: { repairJobId_item: { repairJobId: id, item: p.inspection.item } }, update: { status: p.inspection.status, note: p.inspection.note }, create: { repairJobId: id, item: p.inspection.item, status: p.inspection.status, note: p.inspection.note } });
       if (p.addAccessory) await tx.repairAccessory.create({ data: { repairJobId: id, name: p.addAccessory.name, quantity: p.addAccessory.quantity, condition: p.addAccessory.condition } });
@@ -92,9 +122,11 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
       if (p.addPart) {
         const variant = await tx.productVariant.findUnique({ where: { id: p.addPart.productVariantId }, include: { product: true } });
         if (!variant || variant.product.productType !== "SPARE_PART") throw new Error("Selected item is not a spare part.");
-        const stock = await tx.inventoryItem.findUnique({ where: { productVariantId_branchId: { productVariantId: p.addPart.productVariantId, branchId: existing.branchId } } });
-        if (!stock || stock.quantity < p.addPart.quantity) throw new Error("Insufficient spare-part stock for this branch.");
-        await tx.inventoryItem.update({ where: { id: stock.id }, data: { quantity: { decrement: p.addPart.quantity } } });
+        const deducted = await tx.inventoryItem.updateMany({
+          where: { productVariantId: p.addPart.productVariantId, branchId: existing.branchId, quantity: { gte: p.addPart.quantity } },
+          data: { quantity: { decrement: p.addPart.quantity } },
+        });
+        if (deducted.count !== 1) throw new Error("Insufficient spare-part stock for this branch.");
         await tx.repairPart.create({ data: { repairJobId: id, productVariantId: p.addPart.productVariantId, quantity: p.addPart.quantity, unitPrice: variant.sellingPrice } });
         await tx.stockMovement.create({ data: { branchId: existing.branchId, productVariantId: p.addPart.productVariantId, quantity: -p.addPart.quantity, type: "REPAIR_USAGE", referenceType: "REPAIR_JOB", referenceId: id, note: `Used in repair ${existing.ticketNumber}`, createdById: u.id } });
       }

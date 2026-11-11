@@ -1,0 +1,1 @@
+ALTER TYPE "RepairServiceType" ADD VALUE IF NOT EXISTS 'REWORK';

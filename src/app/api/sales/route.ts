@@ -33,7 +33,7 @@ const Schema = z.object({
 
 export async function GET(request: NextRequest) {
   const user = await requireAuth(request);
-  const sales = await prisma.sale.findMany({
+  const [sales, repairs] = await Promise.all([prisma.sale.findMany({
     where: {
       branch: user.role === "OWNER"
         ? { isActive: true }
@@ -50,8 +50,12 @@ export async function GET(request: NextRequest) {
     },
     orderBy: { createdAt: "desc" },
     take: 200,
-  });
-  return NextResponse.json({ sales });
+  }), prisma.repairJob.findMany({
+    where: { status: "DELIVERED", branch: user.role === "OWNER" ? { isActive: true } : { isActive: true, assignments: { some: { userId: user.id } } } },
+    include: { customer: true, branch: true, invoice: true, payments: true },
+    orderBy: { deliveredAt: "desc" }, take: 200,
+  })]);
+  return NextResponse.json({ sales, repairs });
 }
 
 export async function POST(request: NextRequest) {

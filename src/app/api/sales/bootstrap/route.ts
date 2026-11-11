@@ -13,6 +13,7 @@ export async function GET(request: NextRequest) {
           id: true,
           name: true,
           sku: true,
+          barcode: true,
           productType: true,
           variants: {
             where: { isActive: true },

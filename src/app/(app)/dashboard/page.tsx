@@ -45,7 +45,7 @@ export default async function Dashboard() {
   const from = startOfDay(today);
   const to = endOfDay(today);
 
-  const [sales, visits, repairs, repairStatus, lowStock] = await Promise.all([
+  const [sales, repairRevenue, visits, repairs, repairStatus, lowStock, deliveredToday, productUnitsSold] = await Promise.all([
     prisma.sale.aggregate({
       where: {
         branchId: { in: branchIds },
@@ -54,6 +54,10 @@ export default async function Dashboard() {
       },
       _sum: { total: true },
       _count: { _all: true },
+    }),
+    prisma.transaction.aggregate({
+      where: { branchId: { in: branchIds }, type: "REPAIR", createdAt: { gte: from, lte: to } },
+      _sum: { amount: true },
     }),
     prisma.customerVisit.count({
       where: {
@@ -74,6 +78,8 @@ export default async function Dashboard() {
         OR: [{ quantity: 0 }, { quantity: { lte: 2 } }],
       },
     }),
+    prisma.repairJob.count({ where: { branchId: { in: branchIds }, status: "DELIVERED", deliveredAt: { gte: from, lte: to } } }),
+    prisma.saleItem.aggregate({ where: { sale: { branchId: { in: branchIds }, status: "COMPLETED", createdAt: { gte: from, lte: to } }, productVariant: { product: { productType: { in: ["MOBILE", "ACCESSORY", "SPARE_PART"] } } } }, _sum: { quantity: true } }),
   ]);
 
   return (
@@ -88,15 +94,17 @@ export default async function Dashboard() {
         </p>
       </div>
 
-      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
         {[
           [
             "Today's Revenue",
-            `₹${Number(sales._sum.total ?? 0).toLocaleString("en-IN")}`,
+            `₹${(Number(sales._sum.total ?? 0) + Number(repairRevenue._sum.amount ?? 0)).toLocaleString("en-IN")}`,
           ],
           ["Today's Bills", sales._count._all],
           ["Customer Visits", visits],
           ["Repairs Received", repairs],
+          ["Repairs Delivered Today", deliveredToday],
+          ["Product Units Sold", productUnitsSold._sum.quantity ?? 0],
         ].map(([label, value]) => (
           <div
             key={label as string}

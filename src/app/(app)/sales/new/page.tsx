@@ -7,6 +7,7 @@ type Product = {
   id: string;
   name: string;
   sku: string;
+  barcode?: string | null;
   productType: string;
   variants: { id: string; name: string; sellingPrice: string | number }[];
 };
@@ -34,6 +35,11 @@ export default function NewSale() {
   const [q, setQ] = useState("");
   const [cart, setCart] = useState<CartItem[]>([]);
   const [customerId, setCustomerId] = useState("");
+  const [customerDialog, setCustomerDialog] = useState(false);
+  const [customerQuery, setCustomerQuery] = useState("");
+  const [newCustomerName, setNewCustomerName] = useState("");
+  const [newCustomerPhone, setNewCustomerPhone] = useState("");
+  const [customerSaving, setCustomerSaving] = useState(false);
   const [branchId, setBranchId] = useState("");
   const [method, setMethod] = useState("CASH");
   const [reference, setReference] = useState("");
@@ -43,6 +49,19 @@ export default function NewSale() {
   const [emiAmount, setEmiAmount] = useState(0);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const selectedCustomer = customers.find((c) => c.id === customerId);
+  async function createCustomer() {
+    if (!newCustomerName.trim() || newCustomerPhone.trim().length < 7) { setError("Enter a customer name and valid phone number."); return; }
+    setCustomerSaving(true); setError("");
+    try {
+      const response = await fetch("/api/customers", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ name: newCustomerName.trim(), phone: newCustomerPhone.trim() }) });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data.message || "Unable to create customer.");
+      setCustomers((old) => [...old, data.customer].sort((a,b) => a.name.localeCompare(b.name)));
+      setCustomerId(data.customer.id); setNewCustomerName(""); setNewCustomerPhone(""); setCustomerDialog(false);
+    } catch (e) { setError(e instanceof Error ? e.message : "Unable to create customer."); }
+    finally { setCustomerSaving(false); }
+  }
   const serialCache = useRef(new Map<string, { devices: Device[]; cachedAt: number }>());
   const serialRequests = useRef(new Map<string, Promise<Device[]>>());
 
@@ -65,7 +84,7 @@ export default function NewSale() {
       .catch((e) => setError(e instanceof Error ? e.message : "Unable to load POS data."));
   }, []);
 
-  const visible = products.filter((p) => `${p.name} ${p.sku}`.toLowerCase().includes(q.toLowerCase())).slice(0, 30);
+  const visible = products.filter((p) => `${p.name} ${p.sku} ${p.barcode ?? ""}`.toLowerCase().includes(q.toLowerCase())).slice(0, 30);
   const subtotal = useMemo(() => cart.reduce((sum, item) => sum + item.unitPrice * item.quantity, 0), [cart]);
   const discountTotal = useMemo(() => cart.reduce((sum, item) => sum + item.unitPrice * item.quantity * item.discountRate / 100, 0), [cart]);
   const total = subtotal - discountTotal;
@@ -218,7 +237,16 @@ export default function NewSale() {
       </section>
 
       <section className="rounded-2xl bg-white p-5 ring-1 ring-slate-200">
-        <label className="text-sm font-medium">Customer<select value={customerId} onChange={(e) => setCustomerId(e.target.value)} className="mt-2 w-full rounded-lg border p-3"><option value="">Walk-in customer</option>{customers.map((c) => <option key={c.id} value={c.id}>{c.name} — {c.phone}</option>)}</select></label>
+        <div className="space-y-2">
+          <div className="flex flex-wrap items-center justify-between gap-2"><label className="text-sm font-semibold">Customer</label><button type="button" onClick={() => setCustomerDialog(true)} className="rounded-lg border border-blue-200 px-3 py-2 text-sm font-semibold text-blue-700">+ Add Customer</button></div>
+          <input value={customerQuery} onChange={e=>setCustomerQuery(e.target.value)} placeholder="Search existing customer by name or phone" className="w-full rounded-lg border p-3"/>
+          <div className="max-h-36 overflow-y-auto rounded-lg border">
+            <button type="button" onClick={()=>setCustomerId("")} className={`block w-full border-b px-3 py-2 text-left text-sm ${!customerId?"bg-blue-50 font-semibold":""}`}>No customer selected (Walk-in sale)</button>
+            {customers.filter(c=>`${c.name} ${c.phone}`.toLowerCase().includes(customerQuery.toLowerCase())).slice(0,30).map(c=><button type="button" key={c.id} onClick={()=>setCustomerId(c.id)} className={`block w-full border-b px-3 py-2 text-left text-sm ${customerId===c.id?"bg-blue-50 font-semibold":""}`}>{c.name} — {c.phone}</button>)}
+          </div>
+          <p className="text-xs text-slate-500">Selected: {selectedCustomer ? `${selectedCustomer.name} · ${selectedCustomer.phone}` : "Walk-in customer (automatic)"}</p>
+        </div>
+        {customerDialog && <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" role="dialog" aria-modal="true" aria-labelledby="new-customer-title"><div className="w-full max-w-md rounded-2xl bg-white p-5 shadow-2xl"><div className="flex items-center justify-between"><h2 id="new-customer-title" className="text-lg font-bold">Add New Customer</h2><button type="button" onClick={()=>setCustomerDialog(false)} className="text-xl text-slate-500" aria-label="Close">×</button></div><div className="mt-4 space-y-3"><label className="block text-sm font-medium">Customer name<input value={newCustomerName} onChange={e=>setNewCustomerName(e.target.value)} className="mt-1 w-full rounded-lg border p-3" autoFocus/></label><label className="block text-sm font-medium">Phone number<input value={newCustomerPhone} onChange={e=>setNewCustomerPhone(e.target.value)} className="mt-1 w-full rounded-lg border p-3" inputMode="tel"/></label><div className="flex justify-end gap-2"><button type="button" onClick={()=>setCustomerDialog(false)} className="rounded-lg border px-4 py-2">Cancel</button><button type="button" disabled={customerSaving} onClick={createCustomer} className="rounded-lg bg-blue-700 px-4 py-2 font-semibold text-white disabled:opacity-50">{customerSaving?"Saving...":"Save Customer"}</button></div></div></div></div>}
         <div className="mt-4 space-y-2">
           {cart.map((item) => <div key={item.key} className="rounded-lg bg-slate-50 p-3">
             <div className="flex items-start justify-between gap-3"><div><div className="font-medium">{item.name}</div><div className="text-xs text-slate-500">{item.variantName} • {item.quantity} × ₹{item.unitPrice.toLocaleString("en-IN")}</div><label className="mt-2 block text-xs font-semibold text-slate-600">Discount (%)<input type="number" min="0" max="100" step="0.5" value={item.discountRate} onChange={e=>setCart(lines=>lines.map(line=>line.key===item.key?{...line,discountRate:Math.max(0,Math.min(100,Number(e.target.value)||0))}:line))} className="mt-1 w-24 rounded-lg border p-2"/></label><div className="mt-1 text-xs text-emerald-700">Discount: ₹{(item.unitPrice*item.quantity*item.discountRate/100).toLocaleString("en-IN")}</div></div><button onClick={() => setCart((items) => items.filter((x) => x.key !== item.key))} className="text-xs text-red-600">Remove</button></div>

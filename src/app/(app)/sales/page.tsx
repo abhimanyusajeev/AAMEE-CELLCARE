@@ -16,7 +16,7 @@ type Sale = {
 };
 
 export default function SalesPage() {
-  const [sales, setSales] = useState<Sale[]>([]);
+  const [sales, setSales] = useState<any[]>([]);
   const [query, setQuery] = useState("");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -28,7 +28,10 @@ export default function SalesPage() {
         if (!r.ok) throw new Error(data.message ?? "Unable to load sales");
         return data;
       })
-      .then((data) => setSales(data.sales ?? []))
+      .then((data) => setSales([
+        ...(data.sales ?? []).map((x: any) => ({ ...x, recordType: "SALE", date: x.createdAt, number: x.invoice?.invoiceNumber ?? "—", amount: x.total, paymentLabel: x.payments?.[0]?.method?.replaceAll("_", " ") ?? "—" })),
+        ...(data.repairs ?? []).map((x: any) => ({ ...x, recordType: "REPAIR", date: x.deliveredAt ?? x.updatedAt, number: x.invoice?.invoiceNumber ?? x.ticketNumber, amount: x.invoice?.total ?? Math.max(0, Number(x.approvedAmount ?? x.estimate ?? 0) - Number(x.discountAmount ?? 0)), paymentLabel: "Repair payment" })),
+      ].sort((a: any, b: any) => new Date(b.date).getTime() - new Date(a.date).getTime())))
       .catch((e) => setError(e.message))
       .finally(() => setLoading(false));
   }, []);
@@ -36,7 +39,7 @@ export default function SalesPage() {
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
     if (!q) return sales;
-    return sales.filter((sale) => `${sale.invoice?.invoiceNumber ?? ""} ${sale.customer?.name ?? ""} ${sale.customer?.phone ?? ""} ${sale.branch.name}`.toLowerCase().includes(q));
+    return sales.filter((sale) => `${sale.number ?? ""} ${sale.customer?.name ?? ""} ${sale.customer?.phone ?? ""} ${sale.branch.name} ${sale.recordType}`.toLowerCase().includes(q));
   }, [sales, query]);
 
   return (
@@ -61,14 +64,14 @@ export default function SalesPage() {
               <thead className="bg-slate-50"><tr>{["Invoice","Date","Branch","Customer","Payment","Total","Status","Action"].map((h) => <th key={h} className="px-4 py-3 text-left">{h}</th>)}</tr></thead>
               <tbody className="divide-y">
                 {filtered.map((sale) => <tr key={sale.id}>
-                  <td className="px-4 py-3 font-semibold">{sale.invoice?.invoiceNumber ?? "—"}</td>
-                  <td className="px-4 py-3">{new Date(sale.createdAt).toLocaleString("en-IN")}</td>
+                  <td className="px-4 py-3 font-semibold">{sale.number ?? "—"}{sale.recordType === "REPAIR" && <span className="ml-2 rounded bg-amber-50 px-2 py-0.5 text-[10px] font-bold text-amber-800">REPAIR</span>}</td>
+                  <td className="px-4 py-3">{new Date(sale.date ?? sale.createdAt).toLocaleString("en-IN")}</td>
                   <td className="px-4 py-3">{sale.branch.name}</td>
                   <td className="px-4 py-3">{sale.customer?.name ?? "Walk-in"}</td>
-                  <td className="px-4 py-3">{sale.payments[0]?.method?.replaceAll("_", " ") ?? "—"}</td>
-                  <td className="px-4 py-3 font-semibold">₹{Number(sale.total).toLocaleString("en-IN")}</td>
-                  <td className="px-4 py-3">{sale.status}</td>
-                  <td className="px-4 py-3">{sale.invoice ? <Link href={`/bills/${sale.invoice.id}`} className="text-blue-700">View bill</Link> : "—"}</td>
+                  <td className="px-4 py-3">{sale.paymentLabel ?? "—"}</td>
+                  <td className="px-4 py-3 font-semibold">₹{Number(sale.amount ?? sale.total).toLocaleString("en-IN")}</td>
+                  <td className="px-4 py-3">{sale.recordType === "REPAIR" ? "DELIVERED" : sale.status}</td>
+                  <td className="px-4 py-3">{sale.recordType === "REPAIR" ? <Link href={`/repairs/${sale.id}`} className="text-blue-700">View repair</Link> : sale.invoice ? <Link href={`/bills/${sale.invoice.id}`} className="text-blue-700">View bill</Link> : "—"}</td>
                 </tr>)}
                 {!filtered.length && <tr><td colSpan={8} className="px-4 py-10 text-center text-slate-500">No sales found.</td></tr>}
               </tbody>

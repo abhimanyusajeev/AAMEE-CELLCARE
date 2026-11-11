@@ -31,7 +31,7 @@ export default async function RepairDetailPage({ params }: { params: Promise<{ i
   });
   const products = await prisma.product.findMany({
     where: { isActive: true, productType: "SPARE_PART" },
-    select: { id: true, name: true, brand: true, variants: { where: { isActive: true }, select: { id: true, name: true, sellingPrice: true } } },
+    select: { id: true, name: true, sku: true, brand: true, variants: { where: { isActive: true }, select: { id: true, name: true, sellingPrice: true, inventoryItems: { where: { branchId: repair.branchId }, select: { quantity: true } } } } },
     orderBy: { name: "asc" }, take: 300,
   });
   return <div className="space-y-4"><Link href="/repairs" className="inline-flex text-sm font-semibold text-blue-700">← Back to Repair Jobs</Link><RepairDetail repair={JSON.parse(JSON.stringify(repair))} technicians={technicians} products={JSON.parse(JSON.stringify(products))} /></div>;
