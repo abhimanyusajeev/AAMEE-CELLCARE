@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db/prisma";
-import { requireAuth } from "@/lib/auth/session";
+import { ForbiddenError, requireAuth, requireBranchAccess } from "@/lib/auth/session";
 import { z } from "zod";
 
 const Schema = z.object({
@@ -17,6 +17,8 @@ const Schema = z.object({
   reorderLevel: z.number().int().nonnegative().default(0),
   warrantyName: z.string().trim().max(100).optional().or(z.literal("")),
   warrantyDays: z.number().int().nonnegative().optional(),
+  branchId: z.string().optional().or(z.literal("")),
+  initialQuantity: z.number().int().nonnegative().default(0),
 });
 
 export async function GET() {
@@ -52,7 +54,7 @@ export async function GET() {
 }
 
 export async function POST(request: NextRequest) {
-  await requireAuth(request);
+  const user = await requireAuth(request);
   const parsed = Schema.safeParse(await request.json().catch(() => null));
   if (!parsed.success) return NextResponse.json({ message: "Invalid product input", issues: parsed.error.flatten() }, { status: 400 });
 
@@ -65,6 +67,10 @@ export async function POST(request: NextRequest) {
       categoryId = category.id;
     }
     if (!categoryId) return NextResponse.json({ message: "Category is required" }, { status: 400 });
+    if (data.initialQuantity > 0 && !data.branchId) return NextResponse.json({ message: "Select a branch to add opening stock." }, { status: 400 });
+    if (data.initialQuantity > 0 && data.productType === "MOBILE") return NextResponse.json({ message: "Mobile stock must be added as individual IMEI/serial devices." }, { status: 400 });
+    if (data.initialQuantity > 0 && data.productType === "SERVICE") return NextResponse.json({ message: "Service products do not have stock quantities." }, { status: 400 });
+    if (data.branchId) await requireBranchAccess(user.id, user.role, data.branchId);
 
     // Keep the interactive transaction short. Do not run a second read query
     // inside the transaction; Prisma's default interactive transaction timeout
@@ -91,6 +97,14 @@ export async function POST(request: NextRequest) {
       });
 
       const variant = product.variants[0];
+      if (data.branchId && data.productType !== "MOBILE" && data.productType !== "SERVICE") {
+        const inventory = await tx.inventoryItem.create({data:{branchId:data.branchId,productVariantId:variant.id,quantity:data.initialQuantity,reorderLevel:data.reorderLevel}});
+        if (data.initialQuantity > 0) {
+          await tx.stockMovement.create({data:{branchId:data.branchId,productVariantId:variant.id,quantity:data.initialQuantity,type:"MANUAL_ADJUSTMENT",note:"Opening stock at product creation",createdById:user.id}});
+        }
+        await tx.auditLog.create({data:{branchId:data.branchId,actorId:user.id,action:"INVENTORY_OPENING_STOCK",entityType:"InventoryItem",entityId:inventory.id,metadata:{quantity:data.initialQuantity,productId:product.id}}});
+      }
+
       if (data.warrantyName && data.warrantyDays && data.warrantyDays > 0) {
         await tx.warrantyPolicy.create({
           data: {
@@ -116,6 +130,7 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json({ product }, { status: 201 });
   } catch (error) {
+    if (error instanceof ForbiddenError) return NextResponse.json({message:"You do not have access to the selected branch."},{status:403});
     return NextResponse.json({ message: error instanceof Error ? error.message : "Unable to create product" }, { status: 400 });
   }
 }

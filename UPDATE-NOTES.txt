@@ -1,25 +1,18 @@
-AAMEE CELLCARE - FEATURE UPDATE SOURCE
-Updated: 11 November 2026
+AAMEE CELLCARE SOURCE UPDATE - 14 NOVEMBER 2026
 
-Changes in this source update:
-1. Product barcode sticker printing: 50 x 25 mm (compact Small Job Card size), includes product name and Code 39 barcode. Barcode/SKU is included in the POS product search fields, so a scanner that types the scanned code into the product search can locate the product.
-2. Sales customer workflow: add-customer dialog (name and phone), existing customer search/selection, and no explicit walk-in option. An empty customer selection is saved as a walk-in sale.
-3. Repair finance: initial estimate, final amount, discount and advance fields on job creation; extra estimate/discount/advance adjustments on repair details; balance is final amount minus discount minus advance. Advance payments are written to RepairPayment.
-4. Delivered repairs appear in Sales as repair entries; a REPAIR Transaction is created on first delivery and today's dashboard revenue includes delivered repair revenue.
-5. Inventory page shows low-stock and out-of-stock variants per accessible branch, including variants without inventory rows. Mobile quantities are based on available serial devices.
+Updated areas:
+- Products list: client-side search by product name, SKU, barcode, brand, category, and variant.
+- Add Product: opening quantity and branch selector; warranty duration supports days, months, and years.
+- Edit Product: branch-specific exact stock quantity editing and warranty name/duration editing.
+- Product APIs: opening stock creates InventoryItem plus StockMovement and AuditLog records; branch access is checked. Mobile stock remains IMEI/serial tracked and Service items do not use inventory.
+- Inventory page: Low Stock and Out of Stock cards toggle their respective lists; each alert row supports updating exact stock quantity inline using the existing inventory adjustment API. Mobile quantity updates remain IMEI/serial managed.
 
-DATABASE MIGRATION:
-prisma/migrations/20261111000000_add_repair_discount_amount/migration.sql
-Adds RepairJob.discountAmount with a default of zero. This is additive and does not delete existing data.
+Installation:
+1. Back up the current project.
+2. Merge this archive's src/ folder into the root src/ folder of the complete Next.js project, replacing matching files.
+3. Keep package.json, prisma/, tsconfig.json, .env and all other project configuration from the existing complete project.
+4. Run: npx prisma generate
+5. Run: npm run dev
+6. Verify: npm run build
 
-Before use:
-- Back up the PostgreSQL database.
-- Run `npx prisma generate`.
-- Apply migrations with `npx prisma migrate deploy` after verifying DATABASE_URL points to the intended database.
-- Run `npm run build` in the complete project repository.
-
-IMPORTANT LIMITATIONS:
-- This ZIP is a source update package, not a complete standalone Next.js project. It does not contain package.json, node_modules, .env, .next, or .git.
-- Barcode stickers use browser print; select the label printer or Save as PDF. Configure printer scaling to 100% / actual size and paper size 50 x 25 mm.
-- The barcode encodes the product barcode/SKU in Code 39. POS barcode lookup works when the scanner sends the scanned text into the POS product search field; a scanner app that opens a URL needs a QR/URL workflow instead.
-- A delivered repair is posted once as a REPAIR transaction. Test existing repair delivery and invoice/payment workflows in a staging database before production.
+No Prisma schema migration is included or expected for these changes. Warranty durations are stored using the existing WarrantyPolicy.durationDays field (months are converted as 30 days each; years as 365 days each).

@@ -1,0 +1,4 @@
+import { NextRequest, NextResponse } from "next/server"; import { z } from "zod"; import { findUserForLogin, verifyPassword } from "@/lib/auth/password"; import { createSession } from "@/lib/auth/session";
+const Schema=z.object({identifier:z.string().trim().min(3).max(160),password:z.string().min(8).max(256)});
+export async function POST(req:NextRequest){const body=await req.json().catch(()=>null);const parsed=Schema.safeParse(body);if(!parsed.success)return NextResponse.json({message:"Invalid login input."},{status:400});const user=await findUserForLogin(parsed.data.identifier);if(!user||!user.isActive||!(await verifyPassword(parsed.data.password,user.passwordHash)))return NextResponse.json({message:"Invalid credentials."},{status:401});const res=NextResponse.json({ok:true});await createSession(user.id,res);return res;}
+

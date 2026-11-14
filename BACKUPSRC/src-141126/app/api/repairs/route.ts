@@ -1,0 +1,43 @@
+import { NextRequest, NextResponse } from "next/server";
+import { z } from "zod";
+import { prisma } from "@/lib/db/prisma";
+import { requireAuth, requireBranchAccess } from "@/lib/auth/session";
+import { buildWhatsAppLink, normalizeWhatsAppPhone } from "@/lib/whatsapp";
+
+const Schema = z.object({ branchId:z.string(), customerId:z.string().optional(), deviceType:z.enum(["MOBILE","LAPTOP","TABLET","OTHER"]), serviceType:z.enum(["REPAIR","SERVICE","UPGRADE","MAINTENANCE","DIAGNOSIS","REWORK"]), issue:z.string().min(1), brand:z.string().optional(), model:z.string().optional(), imei:z.string().optional(), serialNumber:z.string().optional(), ram:z.string().optional(), storage:z.string().optional(), color:z.string().optional(), chargerReceived:z.boolean().optional(), bagReceived:z.boolean().optional(), condition:z.string().optional(), passwordNote:z.string().optional(), estimate:z.number().nonnegative().optional(), finalAmount:z.number().nonnegative().optional(), discountAmount:z.number().nonnegative().optional(), advanceAmount:z.number().nonnegative().optional(), promisedDate:z.string().optional(), accessories:z.array(z.string()).optional(), inspection:z.array(z.object({item:z.string().min(1),status:z.enum(["YES","NO","N/A"]),note:z.string().optional()})).optional(), sendWhatsApp:z.boolean().optional() });
+
+function buildReceivedReport(repair: any) {
+  const customer = repair.customer?.name || "Customer";
+  const device = [repair.device?.brand, repair.device?.model].filter(Boolean).join(" ") || "your device";
+  const baseUrl = (process.env.NEXT_PUBLIC_APP_URL || "").trim().replace(/\/+$/, "");
+  const trackingUrl = baseUrl ? `${baseUrl}/track?id=${encodeURIComponent(repair.id)}` : "";
+  const trackingLine = trackingUrl ? `\n\n\u{1F50E} Track your repair:\n${trackingUrl}` : "";
+  const signature = `\n\n— AAMEE CELLCARE\n\u{1F4DE} 9207277210\n\u{1F4DE} 9207277770`;
+  return `Hi ${customer} \u{1F44B}\n\nYour job card has been created successfully! \u{1F389}\n\n\u{1F4CB} Job Card: ${repair.ticketNumber}\n\u{1F4F1} Device: ${device}\n\u{1F527} Problem: ${repair.issue || "-"}\n\u{1F4B0} Estimated Cost: ₹${Number(repair.estimate || 0).toLocaleString("en-IN")}\n\u{1F4B5} Advance Paid: ₹${Number(repair.advanceAmount || 0).toLocaleString("en-IN")}\n\nWe will keep you updated on the progress.${signature}${trackingLine}`;
+}
+
+export async function GET(req:NextRequest){const u=await requireAuth(req);const branchFilter=u.role==="OWNER"?{isActive:true}:{isActive:true,assignments:{some:{userId:u.id}}};return NextResponse.json({repairs:await prisma.repairJob.findMany({where:{branch:branchFilter},include:{customer:true,branch:true,technician:true,device:true},orderBy:{createdAt:"desc"},take:500})});}
+
+export async function POST(req:NextRequest){
+  const u=await requireAuth(req); const parsed=Schema.safeParse(await req.json().catch(()=>null)); if(!parsed.success)return NextResponse.json({message:"Invalid repair",issues:parsed.error.flatten()},{status:400}); const p=parsed.data; await requireBranchAccess(u.id,u.role,p.branchId);
+  const finalAmount = p.finalAmount ?? p.estimate ?? 0;
+  const discountAmount = p.discountAmount ?? 0;
+  const advanceAmount = p.advanceAmount ?? 0;
+  if (discountAmount > finalAmount) return NextResponse.json({message:"Discount cannot exceed the final amount."},{status:400});
+  if (advanceAmount > finalAmount - discountAmount) return NextResponse.json({message:"Advance cannot exceed the discounted final amount."},{status:400});
+  try {
+    const count=await prisma.repairJob.count({where:{branchId:p.branchId}}); const ticket=`R-${String(count+1).padStart(5,"0")}`;
+    const repair=await prisma.$transaction(async tx=>{
+      const created=await tx.repairJob.create({data:{branchId:p.branchId,customerId:p.customerId||null,ticketNumber:ticket,deviceType:p.deviceType,serviceType:p.serviceType,issue:p.issue,estimate:p.estimate??0,approvedAmount:p.finalAmount??p.estimate??0,advanceAmount:p.advanceAmount??0,discountAmount:p.discountAmount??0,balanceAmount:Math.max(0,(p.finalAmount??p.estimate??0)-(p.discountAmount??0)-(p.advanceAmount??0)),status:"RECEIVED",createdById:u.id,promisedDate:p.promisedDate?new Date(p.promisedDate):null,device:{create:{brand:p.brand||null,model:p.model||null,imei:p.imei||null,serialNumber:p.serialNumber||null,ram:p.ram||null,storage:p.storage||null,color:p.color||null,chargerReceived:!!p.chargerReceived,bagReceived:!!p.bagReceived,condition:p.condition||null,passwordNote:p.passwordNote||null}}}});
+      if ((p.advanceAmount ?? 0) > 0) await tx.repairPayment.create({data:{branchId:p.branchId,repairJobId:created.id,amount:p.advanceAmount!,paymentType:"ADVANCE"}});
+      await tx.repairStatusHistory.create({data:{repairJobId:created.id,newStatus:"RECEIVED",changedById:u.id,note:"Job card created"}});
+      if(p.customerId) await tx.customerVisit.create({data:{customerId:p.customerId,branchId:p.branchId,type:"REPAIR",createdById:u.id}});
+      if(p.accessories?.length) await tx.repairAccessory.createMany({data:p.accessories.map(name=>({repairJobId:created.id,name,quantity:1}))});
+      if(p.inspection?.length) await tx.repairInspection.createMany({data:p.inspection.map(x=>({repairJobId:created.id,item:x.item,status:x.status,note:x.note}))});
+      return created;
+    });
+    const full=await prisma.repairJob.findUnique({where:{id:repair.id},include:{customer:true,device:true,branch:true}});
+    const whatsapp = full?.customer?.phone ? { clickToChatUrl: buildWhatsAppLink(full.customer.phone, buildReceivedReport(full)) } : { clickToChatUrl: "", reason: "Customer phone number is missing." };
+    return NextResponse.json({repair,whatsapp},{status:201});
+  } catch(error){return NextResponse.json({message:error instanceof Error?error.message:"Unable to create repair"},{status:400});}
+}
