@@ -1,0 +1,1 @@
+"use client";export default function ReportsPrintButton(){return <button type="button" onClick={()=>window.print()} className="rounded-xl bg-slate-900 px-4 py-2.5 text-sm font-bold text-white print:hidden">Download / Save PDF</button>}

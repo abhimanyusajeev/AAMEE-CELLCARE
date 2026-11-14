@@ -13,6 +13,7 @@ const Schema = z.object({
   discountAmount: z.number().nonnegative().optional(),
   advanceAmount: z.number().nonnegative().optional(),
   notes: z.string().max(2000).optional(),
+  addNote: z.string().trim().min(1).max(2000).optional(),
   technicianId: z.string().nullable().optional(),
   inspection: z.object({ item: z.string().min(1).max(100), status: z.enum(["YES", "NO", "N/A"]), note: z.string().max(500).optional() }).optional(),
   addAccessory: z.object({ name: z.string().min(1).max(100), quantity: z.number().int().positive().default(1), condition: z.string().max(100).optional() }).optional(),
@@ -74,7 +75,13 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
   try {
     await prisma.$transaction(async (tx) => {
       const data: any = {};
-      for (const key of ["diagnosis", "approvedAmount", "estimate", "discountAmount", "notes", "technicianId"] as const) if (key in p) data[key] = p[key];
+      for (const key of ["diagnosis", "approvedAmount", "estimate", "discountAmount", "technicianId"] as const) if (key in p) data[key] = p[key];
+      if (p.notes !== undefined) data.notes = p.notes;
+      if (p.addNote) {
+        const stamp = new Date().toLocaleString("en-IN", { timeZone: "Asia/Kolkata" });
+        const entry = `[${stamp}] ${p.addNote}`;
+        data.notes = existing.notes ? `${existing.notes}\n\n${entry}` : entry;
+      }
       if (p.status) data.status = p.status;
       if (p.status === "DELIVERED" && existing.status !== "DELIVERED") data.deliveredAt = new Date();
       if (p.status === "READY_FOR_PICKUP") data.completedAt = new Date();
@@ -91,8 +98,20 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
       }
       if (Object.keys(data).length) await tx.repairJob.update({ where: { id }, data });
 
+      const updateEvents: string[] = [];
+      if (p.addNote) updateEvents.push(`Repair note: ${p.addNote}`);
+      if (p.diagnosis !== undefined) updateEvents.push("Updated: diagnosis / technician remarks");
+      if (p.approvedAmount !== undefined || p.estimate !== undefined) updateEvents.push("Updated: approved repair amount");
+      if (p.discountAmount !== undefined) updateEvents.push("Updated: discount amount");
+      if (p.advanceAmount !== undefined) updateEvents.push("Updated: advance payment");
+      if (p.technicianId !== undefined) updateEvents.push("Updated: assigned technician");
+      if (p.inspection) updateEvents.push(`Updated: inspection — ${p.inspection.item} (${p.inspection.status})`);
+      if (p.addAccessory) updateEvents.push(`Updated: accessory added — ${p.addAccessory.name} × ${p.addAccessory.quantity}`);
+      if (p.addPart) updateEvents.push(`Updated: spare part used — ${p.addPart.quantity} unit(s)`);
       if (p.status && p.status !== existing.status) {
-        await tx.repairStatusHistory.create({ data: { repairJobId: id, oldStatus: existing.status, newStatus: p.status, changedById: u.id } });
+        await tx.repairStatusHistory.create({ data: { repairJobId: id, oldStatus: existing.status, newStatus: p.status, changedById: u.id, note: updateEvents.join("\n") || undefined } });
+      } else if (updateEvents.length) {
+        await tx.repairStatusHistory.create({ data: { repairJobId: id, oldStatus: existing.status, newStatus: existing.status, changedById: u.id, note: updateEvents.join("\n") } });
       }
       if (p.status === "DELIVERED" && existing.status !== "DELIVERED") {
         const finalAmount = Number(p.approvedAmount ?? p.estimate ?? existing.approvedAmount ?? existing.estimate ?? 0);

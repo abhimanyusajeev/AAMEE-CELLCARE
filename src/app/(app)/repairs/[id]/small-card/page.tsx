@@ -28,7 +28,7 @@ export default async function SmallJobCard({
 
   const customerName = repair.customer?.name || "Walk-in customer";
   const customerPhone = repair.customer?.phone || "—";
-  const receivedDate = new Date(repair.receivedAt).toLocaleDateString("en-IN");
+  const receivedDate = new Date(repair.createdAt).toLocaleDateString("en-IN");
   const deviceName = [repair.device?.brand, repair.device?.model].filter(Boolean).join(" ");
 
   return (
@@ -77,7 +77,7 @@ export default async function SmallJobCard({
         <div className="sticker-fields">
           <div className="sticker-field"><span>Name</span><strong>{customerName}</strong></div>
           <div className="sticker-field"><span>Mob</span><strong>{customerPhone}</strong></div>
-          <div className="sticker-field"><span>Date</span><strong>{receivedDate}</strong></div>
+          <div className="sticker-field"><span>Created</span><strong>{receivedDate}</strong></div>
           {stickerSize === "large" && deviceName ? (
             <div className="sticker-field sticker-device"><span>Device</span><strong>{deviceName}</strong></div>
           ) : null}
