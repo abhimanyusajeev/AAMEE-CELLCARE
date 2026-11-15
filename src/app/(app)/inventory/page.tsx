@@ -2,10 +2,11 @@ import {prisma} from "@/lib/db/prisma";
 import {requireAuth} from "@/lib/auth/session";
 import {InventoryManager} from "@/components/management/InventoryManager";
 import {InventoryAlerts} from "@/components/management/InventoryAlerts";
+import {getBranchScope} from "@/lib/branch-scope";
 export default async function Inventory(){
  const u=await requireAuth();
- const branches=u.role==="OWNER"?await prisma.branch.findMany({where:{isActive:true},orderBy:{name:"asc"},select:{id:true,name:true}}):await prisma.branch.findMany({where:{isActive:true,assignments:{some:{userId:u.id}}},orderBy:{name:"asc"},select:{id:true,name:true}});
- const branchIds=branches.map(b=>b.id);
+ const { selectedBranches: branches, branchIds } = await getBranchScope(u);
+
  const [rows,variants,devices]=await Promise.all([
   prisma.inventoryItem.findMany({where:{branchId:{in:branchIds}},include:{branch:{select:{name:true}},productVariant:{select:{id:true,name:true,reorderLevel:true,product:{select:{name:true,sku:true,productType:true}}}}},orderBy:{updatedAt:"desc"},take:1000}),
   prisma.productVariant.findMany({where:{isActive:true,product:{isActive:true,productType:{not:"SERVICE"}}},select:{id:true,name:true,reorderLevel:true,product:{select:{name:true,sku:true,productType:true}}},orderBy:{product:{name:"asc"}}}),

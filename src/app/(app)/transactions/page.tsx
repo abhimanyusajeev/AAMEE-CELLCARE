@@ -2,6 +2,7 @@ import { prisma } from "@/lib/db/prisma";
 import { requireAuth } from "@/lib/auth/session";
 import { PageHeader } from "@/components/ui/PageHeader";
 import Link from "next/link";
+import { getBranchScope } from "@/lib/branch-scope";
 
 type Props={searchParams:Promise<{from?:string;to?:string;type?:string}>};
 export default async function Transactions({searchParams}:Props){
@@ -9,7 +10,7 @@ export default async function Transactions({searchParams}:Props){
  const today=new Date(); const startDefault=new Date(today.getFullYear(),today.getMonth(),today.getDate());
  const from=sp.from?new Date(`${sp.from}T00:00:00`):startDefault; const to=sp.to?new Date(`${sp.to}T23:59:59.999`):new Date(today.getFullYear(),today.getMonth(),today.getDate(),23,59,59,999);
  const validFrom=!Number.isNaN(from.getTime())?from:startDefault; const validTo=!Number.isNaN(to.getTime())?to:new Date();
- const ids=(u.role==="OWNER"?await prisma.branch.findMany({where:{isActive:true},select:{id:true}}):await prisma.branch.findMany({where:{isActive:true,assignments:{some:{userId:u.id}}},select:{id:true}})).map(x=>x.id);
+ const { branchIds: ids } = await getBranchScope(u);
  const where:any={branchId:{in:ids},createdAt:{gte:validFrom,lte:validTo}}; if(sp.type)where.type=sp.type;
  const rows=await prisma.transaction.findMany({where,include:{branch:true},orderBy:{createdAt:"desc"}}); const total=rows.reduce((n,r)=>n+Number(r.amount),0);
  const day=(d:Date)=>`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;

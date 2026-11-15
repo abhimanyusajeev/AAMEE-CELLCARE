@@ -1,45 +1,11 @@
-import { cookies } from "next/headers";
 import { prisma } from "@/lib/db/prisma";
 import { requireAuth } from "@/lib/auth/session";
 import { format, startOfDay, endOfDay } from "date-fns";
+import { getBranchScope } from "@/lib/branch-scope";
 
 export default async function Dashboard() {
   const user = await requireAuth();
-  const cookieStore = await cookies();
-  const requestedBranchId = cookieStore.get("aamee_selected_branch")?.value ?? "ALL";
-
-  const branches =
-    user.role === "OWNER"
-      ? await prisma.branch.findMany({
-          where: { isActive: true },
-          select: { id: true, name: true },
-          orderBy: { name: "asc" },
-        })
-      : await prisma.branch.findMany({
-          where: {
-            isActive: true,
-            assignments: { some: { userId: user.id } },
-          },
-          select: { id: true, name: true },
-          orderBy: { name: "asc" },
-        });
-
-  const accessibleBranchIds = new Set(branches.map((branch) => branch.id));
-  const selectedBranchId =
-    user.role === "OWNER" &&
-    requestedBranchId !== "ALL" &&
-    accessibleBranchIds.has(requestedBranchId)
-      ? requestedBranchId
-      : null;
-
-  const selectedBranches = selectedBranchId
-    ? branches.filter((branch) => branch.id === selectedBranchId)
-    : branches;
-
-  const branchIds = selectedBranches.map((branch) => branch.id);
-  const selectedBranchName = selectedBranchId
-    ? selectedBranches[0]?.name ?? "Selected shop"
-    : "All Shops";
+  const { branches, selectedBranchId, selectedBranches, branchIds, selectedBranchName } = await getBranchScope(user);
 
   const today = new Date();
   const from = startOfDay(today);

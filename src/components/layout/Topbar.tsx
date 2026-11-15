@@ -83,9 +83,7 @@ export function Topbar({
     document.cookie = `aamee_selected_branch=${encodeURIComponent(value)}; path=/; max-age=${60 * 60 * 24 * 30}; samesite=lax`;
     window.dispatchEvent(new CustomEvent("aamee-branch-change", { detail: value }));
 
-    if (pathname === "/dashboard") {
-      router.refresh();
-    }
+    router.refresh();
   }
 
   async function logout() {
