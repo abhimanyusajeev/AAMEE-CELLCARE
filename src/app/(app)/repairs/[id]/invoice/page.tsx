@@ -11,8 +11,14 @@ export default async function RepairInvoicePage({ params }: { params: Promise<{ 
   const repair = await prisma.repairJob.findUnique({ where: { id }, include: { branch: true, customer: true, device: true, parts: { include: { productVariant: { include: { product: true } } }, orderBy: { createdAt: "asc" } }, payments: { orderBy: { paidAt: "asc" } }, invoice: true } });
   if (!repair) notFound(); await requireBranchAccess(user.id, user.role, repair.branchId);
   const total = Number(repair.invoice?.total ?? repair.approvedAmount ?? repair.estimate ?? 0);
-  const paid = Number(repair.advanceAmount ?? 0) + repair.payments.reduce((sum, p) => sum + Number(p.amount ?? 0), 0);
-  const balance = Math.max(0, Number(repair.balanceAmount ?? total - paid));
+  // RepairPayment is the payment ledger. advanceAmount is a cached aggregate that
+  // is also represented by those ledger rows, so adding both counts the same money twice.
+  // Keep advanceAmount only as a fallback for older jobs that have no ledger rows.
+  const paymentLedgerTotal = repair.payments.reduce((sum, payment) => sum + Number(payment.amount ?? 0), 0);
+  const paid = paymentLedgerTotal > 0 ? paymentLedgerTotal : Number(repair.advanceAmount ?? 0);
+  // Calculate from the invoice total so the printed balance always reconciles with
+  // the amount actually invoiced, even if the cached repair balance is stale.
+  const balance = Math.max(0, total - paid);
   const device = [repair.device?.brand, repair.device?.model].filter(Boolean).join(" ") || repair.deviceType;
   const lines = repair.parts.length ? repair.parts.map((part) => ({ name: `${part.productVariant.product.name}${part.productVariant.name ? ` — ${part.productVariant.name}` : ""}`, qty: part.quantity, amount: Number(part.unitPrice) * part.quantity })) : [{ name: `${repair.serviceType} — ${repair.issue}`, qty: 1, amount: total }];
   return <main className="repair-invoice-page mx-auto max-w-4xl p-3 sm:p-6">
